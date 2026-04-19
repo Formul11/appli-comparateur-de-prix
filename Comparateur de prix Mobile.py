@@ -22,13 +22,40 @@ st.set_page_config(
     initial_sidebar_state="collapsed"  # Sidebar fermée par défaut sur mobile
 )
 
-# CSS pour optimiser l'affichage mobile
+# CSS pour optimiser l'affichage mobile + reconnaissance vocale
 st.markdown("""
 <style>
     /* Boutons plus grands pour toucher facilement */
     .stButton > button {
         min-height: 50px !important;
         font-size: 18px !important;
+    }
+    
+    /* Bouton micro */
+    .mic-button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        border-radius: 50% !important;
+        width: 50px !important;
+        height: 50px !important;
+        font-size: 24px !important;
+        border: none !important;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4) !important;
+    }
+    
+    .mic-button:hover {
+        transform: scale(1.05) !important;
+        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6) !important;
+    }
+    
+    .mic-button.recording {
+        animation: pulse 1.5s infinite !important;
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%) !important;
+    }
+    
+    @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.1); }
+        100% { transform: scale(1); }
     }
     
     /* Champs de saisie plus grands */
@@ -70,7 +97,143 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🛒 Comparateur Prix")
+# =====================================================
+# COMPOSANT RECONNAISSANCE VOCALE (Web Speech API)
+# =====================================================
+def voice_input_widget(key, label="🎤 Parlez pour saisir"):
+    """Widget de reconnaissance vocale avec bouton micro."""
+    
+    import streamlit.components.v1 as components
+    
+    voice_html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body { margin: 0; font-family: sans-serif; }
+            .voice-container {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 5px;
+            }
+            .mic-btn {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                border: none;
+                border-radius: 50%;
+                width: 50px;
+                height: 50px;
+                font-size: 24px;
+                cursor: pointer;
+                box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+                transition: all 0.3s;
+            }
+            .mic-btn:hover {
+                transform: scale(1.05);
+                box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+            }
+            .mic-btn.recording {
+                animation: pulse 1.5s infinite;
+                background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            }
+            @keyframes pulse {
+                0%, 100% { transform: scale(1); }
+                50% { transform: scale(1.1); }
+            }
+            .voice-text {
+                flex: 1;
+                padding: 12px;
+                border: 2px solid #ddd;
+                border-radius: 8px;
+                font-size: 16px;
+                min-height: 24px;
+            }
+            .status {
+                font-size: 12px;
+                color: #666;
+                margin-left: 5px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="voice-container">
+            <button id="micBtn" class="mic-btn" title="Cliquez et parlez">🎤</button>
+            <input type="text" id="voiceInput" class="voice-text" placeholder="Texte reconnu..." readonly>
+            <span id="status" class="status">Appuyez sur 🎤</span>
+        </div>
+        
+        <script>
+            const micBtn = document.getElementById('micBtn');
+            const voiceInput = document.getElementById('voiceInput');
+            const status = document.getElementById('status');
+            let recognition = null;
+            
+            // Vérifier le support
+            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                recognition = new SpeechRecognition();
+                recognition.lang = 'fr-FR';
+                recognition.continuous = false;
+                recognition.interimResults = false;
+                
+                micBtn.addEventListener('click', function() {
+                    if (micBtn.classList.contains('recording')) {
+                        recognition.stop();
+                    } else {
+                        recognition.start();
+                    }
+                });
+                
+                recognition.onstart = function() {
+                    micBtn.classList.add('recording');
+                    status.textContent = '🔴 Écoute...';
+                    console.log('🎤 Écoute en cours');
+                };
+                
+                recognition.onresult = function(event) {
+                    const transcript = event.results[0][0].transcript;
+                    voiceInput.value = transcript;
+                    status.textContent = '✅ Reconnu!';
+                    console.log('✅ Texte reconnu:', transcript);
+                    
+                    // Envoyer au parent (Streamlit)
+                    window.parent.postMessage({
+                        type: 'voice_input',
+                        value: transcript,
+                        key: '""" + key + """'
+                    }, '*');
+                };
+                
+                recognition.onerror = function(event) {
+                    console.error('Erreur:', event.error);
+                    status.textContent = '❌ Erreur';
+                    micBtn.classList.remove('recording');
+                };
+                
+                recognition.onend = function() {
+                    micBtn.classList.remove('recording');
+                    if (status.textContent === '🔴 Écoute...') {
+                        status.textContent = '🛑 Arrêté';
+                    }
+                };
+            } else {
+                micBtn.disabled = true;
+                micBtn.style.opacity = '0.5';
+                status.textContent = '⚠️ Non supporté';
+                console.log('⚠️ Web Speech API non supportée');
+            }
+        </script>
+    </body>
+    </html>
+    """
+    
+    st.markdown(f"**{label}**")
+    components.html(voice_html, height=80, scrolling=False)
+    
+    # Info
+    st.caption("🎤 Appuyez sur le bouton micro et parlez")
+
+st.title("🛒 Comparateur Prix 🎤")
 
 # Initialisation
 magasins = []
@@ -163,6 +326,11 @@ with tabs[0]:
     # Actions
     if panier_selectionne == "➕ Créer":
         with st.container(border=True):
+            st.markdown("**📝 Nom du panier**")
+            
+            # Reconnaissance vocale pour le nom du panier
+            voice_input_widget("panier_voix", "🎤 Dictée vocale")
+            
             nouveau_nom = st.text_input("Nom", placeholder="ex: Courses 20.04.2026", key="mobile_new_panier")
             if st.button("✓ Créer", use_container_width=True, type="primary", key="mobile_btn_creer_panier"):
                 if nouveau_nom and nouveau_nom.strip():
@@ -226,6 +394,11 @@ with tabs[1]:
     # Actions
     if magasin_selectionne == "➕ Créer":
         with st.container(border=True):
+            st.markdown("**📝 Nom du magasin**")
+            
+            # Reconnaissance vocale pour le nom du magasin
+            voice_input_widget("magasin_voix", "🎤 Dictée vocale")
+            
             nouveau_mag = st.text_input("Nom magasin", placeholder="ex: Monoprix", key="mobile_new_magasin")
             if st.button("✓ Créer", use_container_width=True, type="primary", key="mobile_btn_creer_mag"):
                 if nouveau_mag and nouveau_mag.strip():
@@ -285,6 +458,11 @@ with tabs[2]:
     else:
         # Ajouter un article
         with st.expander("➕ Ajouter article"):
+            st.markdown("**📝 Nom de l'article**")
+            
+            # Reconnaissance vocale pour le nom de l'article
+            voice_input_widget("article_voix", "🎤 Dictée vocale")
+            
             nom_article = st.text_input("Nom article", placeholder="ex: Pommes", key="mobile_new_article")
             
             # Sélection du magasin pour le prix
